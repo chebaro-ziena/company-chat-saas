@@ -6,6 +6,9 @@ import {
   HttpStatus,
   Post,
   Res,
+  Get,
+  Req,
+  UseGuards
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
@@ -13,6 +16,8 @@ import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import type { AuthenticatedRequest } from './interfaces/authenticated-request.interface';
 
 @Controller('auth')
 export class AuthController {
@@ -32,6 +37,14 @@ export class AuthController {
       path: '/',
       maxAge: 15 * 60 * 1000,
     });
+  }
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  getMe(@Req() request: AuthenticatedRequest) {
+    return {
+      user: request.user,
+    };
   }
 
   @Post('register')

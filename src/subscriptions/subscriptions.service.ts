@@ -1,26 +1,86 @@
-import { Injectable } from '@nestjs/common';
-import { CreateSubscriptionDto } from './dto/create-subscription.dto';
-import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+
+import {
+  Injectable,
+  Inject,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
+import { desc, eq } from 'drizzle-orm';
+import { DRIZZLE } from '../db/db.constants';
+import { subscriptions } from '../db/schema';
 
 @Injectable()
 export class SubscriptionsService {
-  create(createSubscriptionDto: CreateSubscriptionDto) {
-    return 'This action adds a new subscription';
+  constructor(
+    @Inject(DRIZZLE) private readonly db: any,
+  ) {}
+
+  getPlans() {
+    return [
+      {
+        id: 'FREE',
+        name: 'Free',
+        price: 0,
+        currency: 'USD',
+        features: [
+          'Create a company',
+          'Manage products',
+          'Basic customer chat',
+        ],
+      },
+      {
+        id: 'PAID',
+        name: 'Paid',
+        price: null,
+        currency: 'USD',
+        features: [
+          'Advanced company features',
+          'Team management',
+          'Enhanced customer support tools',
+        ],
+      },
+    ];
   }
 
-  findAll() {
-    return `This action returns all subscriptions`;
+  async getMySubscription(userId: string) {
+    const [subscription] = await this.db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, userId))
+      .orderBy(desc(subscriptions.createdAt))
+      .limit(1);
+
+    return { subscription: subscription ?? null };
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} subscription`;
-  }
+  async activateFreePlan(userId: string) {
+    const [activeSubscription] = await this.db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, userId))
+      .orderBy(desc(subscriptions.createdAt))
+      .limit(1);
 
-  update(id: number, updateSubscriptionDto: UpdateSubscriptionDto) {
-    return `This action updates a #${id} subscription`;
-  }
+    if (activeSubscription?.status === 'ACTIVE') {
+      throw new ConflictException(
+        'You already have an active subscription.',
+      );
+    }
 
-  remove(id: number) {
-    return `This action removes a #${id} subscription`;
+    const [subscription] = await this.db
+      .insert(subscriptions)
+      .values({
+        userId,
+        companyId: null,
+        plan: 'FREE',
+        status: 'ACTIVE',
+      })
+      .returning();
+
+    return {
+      message: 'Free plan activated successfully.',
+      subscription,
+    };
   }
 }
+

@@ -18,11 +18,15 @@ export const companyRoleEnum = pgEnum('company_role', [
   'TEAM_MEMBER',
 ]);
 
-// Subscription plans
-export const subscriptionPlanEnum = pgEnum('subscription_plan', [
-  'FREE',
-  'PAID',
-]);
+export const subscriptionPlanEnum = pgEnum(
+  'subscription_plan',
+  ['FREE', 'PAID'],
+);
+
+export const subscriptionStatusEnum = pgEnum(
+  'subscription_status',
+  ['PENDING', 'ACTIVE', 'CANCELLED', 'EXPIRED'],
+);
 
 // Company status
 export const companyStatusEnum = pgEnum('company_status', [
@@ -123,5 +127,46 @@ export const products = pgTable(
       table.companyId,
       table.isPublished,
     ),
+  ],
+);
+
+export const subscriptions = pgTable(
+  'subscriptions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    companyId: uuid('company_id')
+      .references(() => companies.id, { onDelete: 'cascade' }),
+
+    plan: subscriptionPlanEnum('plan').notNull().default('FREE'),
+
+    status: subscriptionStatusEnum('status')
+      .notNull()
+      .default('PENDING'),
+
+    providerSubscriptionId: varchar('provider_subscription_id', {
+      length: 255,
+    }),
+
+    currentPeriodEnd: timestamp('current_period_end', {
+      withTimezone: true,
+    }),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('subscriptions_company_id_unique').on(table.companyId),
+    index('subscriptions_user_id_idx').on(table.userId),
+    index('subscriptions_status_idx').on(table.status),
   ],
 );

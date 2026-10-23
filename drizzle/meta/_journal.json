@@ -15,6 +15,20 @@
       "when": 1792149461746,
       "tag": "0001_salty_bushwacker",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792578780373,
+      "tag": "0002_woozy_mesmero",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792578981510,
+      "tag": "0003_cloudy_stardust",
+      "breakpoints": true
     }
   ]
 }

@@ -1,34 +1,47 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+
+import {
+  Controller,
+  Get,
+  Post,
+  UseGuards,
+  Req,
+} from '@nestjs/common';
+import { Request } from 'express';
 import { SubscriptionsService } from './subscriptions.service';
-import { CreateSubscriptionDto } from './dto/create-subscription.dto';
-import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+
+interface AuthenticatedRequest extends Request {
+  user: {
+    userId: string;
+    email: string;
+  };
+}
 
 @Controller('subscriptions')
 export class SubscriptionsController {
-  constructor(private readonly subscriptionsService: SubscriptionsService) {}
+  constructor(
+    private readonly subscriptionsService: SubscriptionsService,
+  ) {}
 
-  @Post()
-  create(@Body() createSubscriptionDto: CreateSubscriptionDto) {
-    return this.subscriptionsService.create(createSubscriptionDto);
+  @Get('plans')
+  getPlans() {
+    return this.subscriptionsService.getPlans();
   }
 
-  @Get()
-  findAll() {
-    return this.subscriptionsService.findAll();
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  getMySubscription(@Req() req: AuthenticatedRequest) {
+    return this.subscriptionsService.getMySubscription(
+      req.user.userId,
+    );
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.subscriptionsService.findOne(+id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateSubscriptionDto: UpdateSubscriptionDto) {
-    return this.subscriptionsService.update(+id, updateSubscriptionDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.subscriptionsService.remove(+id);
+  @UseGuards(JwtAuthGuard)
+  @Post('free')
+  activateFreePlan(@Req() req: AuthenticatedRequest) {
+    return this.subscriptionsService.activateFreePlan(
+      req.user.userId,
+    );
   }
 }
+
