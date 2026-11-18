@@ -6,6 +6,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class CreateProductDto {
   @IsString()
@@ -27,9 +28,13 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsString()
-  imageUrl?: string;
-
+  imageUrl?: string | null;
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   @IsBoolean()
   isPublished?: boolean;
 }

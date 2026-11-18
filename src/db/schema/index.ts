@@ -159,7 +159,6 @@ export const subscriptions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
-
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -169,4 +168,102 @@ export const subscriptions = pgTable(
     index('subscriptions_user_id_idx').on(table.userId),
     index('subscriptions_status_idx').on(table.status),
   ],
+);
+
+export const conversationStatusEnum = pgEnum('conversation_status', [
+  'OPEN',
+  'CLOSED',
+]);
+
+// Conversations
+export const conversations = pgTable(
+  'conversations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+
+    // Which company owns this conversation
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+
+    // Customer who started the conversation
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    // Optional product being discussed
+    productId: uuid('product_id').references(() => products.id, {
+      onDelete: 'set null',
+    }),
+
+    status: conversationStatusEnum('status')
+      .notNull()
+      .default('OPEN'),
+
+    // Useful for sorting conversations by recent activity
+    lastMessageAt: timestamp('last_message_at', {
+      withTimezone: true,
+    }),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('conversations_company_id_idx').on(table.companyId),
+
+    index('conversations_customer_id_idx').on(table.customerId),
+
+    index('conversations_product_id_idx').on(table.productId),
+
+    index('conversations_company_status_idx').on(
+      table.companyId,
+      table.status,
+    ),
+
+    index('conversations_company_last_message_idx').on(
+      table.companyId,
+      table.lastMessageAt,
+    ),
+  ],
+);
+
+// Messages
+export const messages = pgTable(
+  'messages',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+
+    // The authenticated user who sent this message
+    senderId: uuid('sender_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    content: text('content').notNull(),
+
+    // Basic read tracking
+    readAt: timestamp('read_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('messages_conversation_id_idx').on(table.conversationId),
+
+    index('messages_conversation_created_idx').on(
+      table.conversationId,
+      table.createdAt,
+    ),
+
+    index('messages_sender_id_idx').on(table.senderId),
+  ],      
 );

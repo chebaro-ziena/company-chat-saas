@@ -32,23 +32,27 @@ export class ProductsService {
 
   async createForCompany(
     companyId: string,
-    dto: CreateProductDto,
+    data: CreateProductDto & {
+      imageUrl?: string | null;
+    },
   ) {
-    const [product] = await this.db
-      .insert(schema.products)
-      .values({
-        companyId,
-        name: dto.name.trim(),
-        description: dto.description,
-        price: dto.price,
-        currency: dto.currency?.toUpperCase() ?? 'USD',
-        imageUrl: dto.imageUrl,
-        isPublished: dto.isPublished ?? false,
-      })
-      .returning();
+    // Keep your existing authorization and validation.
 
-    return product;
-  }
+  const [product] = await this.db
+    .insert(schema.products)
+    .values({
+      companyId,
+      name: data.name,
+      description: data.description,
+      price: data.price,
+      currency: data.currency,
+      isPublished: data.isPublished,
+      imageUrl: data.imageUrl ?? null,
+    })
+    .returning();
+
+  return product;
+}
 
   async updateForCompany(
     companyId: string,

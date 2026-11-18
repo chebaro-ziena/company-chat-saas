@@ -34,6 +34,7 @@ import { CompanyRolesGuard } from './guards/company-roles.guard';
   exports: [
     AuthService,
     JwtAuthGuard,
+    JwtModule,
     CompanyMembershipGuard,
     CompanyRolesGuard,
   ],

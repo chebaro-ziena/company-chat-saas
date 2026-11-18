@@ -1,34 +1,94 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Body,
+  Param,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+
 import { ChatService } from './chat.service';
 import { CreateChatDto } from './dto/create-chat.dto';
-import { UpdateChatDto } from './dto/update-chat.dto';
+import { SendMessageDto } from './dto/send-message.dto';
+
+// Replace these imports with the actual paths/names in your project.
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('chat')
+@UseGuards(JwtAuthGuard)
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
-  @Post()
-  create(@Body() createChatDto: CreateChatDto) {
-    return this.chatService.create(createChatDto);
+  // Customer creates a conversation for a company/product.
+  @Post('conversations')
+  createConversation(
+    @Body() dto: CreateChatDto,
+    @Req() req: { user: { userId: string } },
+  ) {
+    return this.chatService.createConversation(
+      req.user.userId,
+      dto.companyId,
+      dto.productId,
+    );
   }
 
-  @Get()
-  findAll() {
-    return this.chatService.findAll();
+  // Customer gets their own conversations.
+  @Get('my-conversations')
+  getCustomerConversations(
+    @Req() req: { user: { userId: string } },
+  ) {
+    return this.chatService.getCustomerConversations(req.user.userId);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.chatService.findOne(+id);
+  // Company admin gets conversations with customer details.
+  @Get('company/:companyId')
+  getCompanyConversations(
+    @Param('companyId') companyId: string,
+    @Req() req: { user: { userId: string } },
+  ) {
+    return this.chatService.getCompanyConversations(
+      companyId,
+      req.user.userId,
+    );
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateChatDto: UpdateChatDto) {
-    return this.chatService.update(+id, updateChatDto);
+  // Get messages belonging to a conversation.
+  @Get('conversations/:conversationId/messages')
+  getConversationMessages(
+    @Param('conversationId') conversationId: string,
+    @Req() req: { user: { userId: string } },
+  ) {
+    return this.chatService.getConversationMessages(
+      conversationId,
+      req.user.userId,
+    );
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.chatService.remove(+id);
+  // Send a message through HTTP (Socket.IO can also handle sending).
+  @Post('conversations/:conversationId/messages')
+  sendMessage(
+    @Param('conversationId') conversationId: string,
+    @Body() dto: SendMessageDto,
+    @Req() req: { user: { userId: string } },
+  ) {
+    return this.chatService.sendMessage(
+      conversationId,
+      req.user.userId,
+      dto.content,
+    );
+  }
+
+  // Close a conversation.
+  @Patch('conversations/:conversationId/close')
+  closeConversation(
+    @Param('conversationId') conversationId: string,
+    @Req() req: { user: { userId: string } },
+  ) {
+    return this.chatService.closeConversation(
+      conversationId,
+      req.user.userId,
+    );
   }
 }
