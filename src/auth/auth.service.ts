@@ -24,6 +24,34 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
+  async getUserName(userId: string): Promise<string | null> {
+    const [user] = await this.db
+      .select({ name: schema.users.name })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+
+    return user?.name ?? null;
+  }
+
+  // Company roles always come from the database, never from the client or JWT.
+  getMemberships(userId: string) {
+    return this.db
+      .select({
+        membershipId: schema.companyMemberships.id,
+        companyId: schema.companies.id,
+        companyName: schema.companies.name,
+        companySlug: schema.companies.slug,
+        role: schema.companyMemberships.role,
+      })
+      .from(schema.companyMemberships)
+      .innerJoin(
+        schema.companies,
+        eq(schema.companyMemberships.companyId, schema.companies.id),
+      )
+      .where(eq(schema.companyMemberships.userId, userId));
+  }
+
   async register(dto: RegisterDto) {
     const email = dto.email.trim().toLowerCase();
 

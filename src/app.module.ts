@@ -4,6 +4,8 @@ import { createObserveModule } from '@nestjs/observe';
 import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -32,6 +34,9 @@ export const { ObserveModule, ObserveInstrument } =
       isGlobal: true,
     }),
 
+    // Default: 100 requests per minute per IP across all HTTP routes
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+
     DbModule,
 
     ObserveModule.forRoot({
@@ -49,7 +54,7 @@ export const { ObserveModule, ObserveInstrument } =
     SubscriptionsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
 

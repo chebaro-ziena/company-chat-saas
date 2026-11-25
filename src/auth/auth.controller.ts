@@ -8,9 +8,11 @@ import {
   Res,
   Get,
   Req,
-  UseGuards
+  UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 
 import { AuthService } from './auth.service';
@@ -40,14 +42,28 @@ export class AuthController {
   }
 
   @Get('me')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard)
-  getMe(@Req() request: AuthenticatedRequest) {
+  async getMe(@Req() request: AuthenticatedRequest) {
+    const user = request.user;
+
+    if (!user) {
+      throw new UnauthorizedException('Authentication required.');
+    }
+
+    const [name, memberships] = await Promise.all([
+      this.authService.getUserName(user.userId),
+      this.authService.getMemberships(user.userId),
+    ]);
+
     return {
-      user: request.user,
+      user: { ...user, name },
+      memberships,
     };
   }
 
   @Post('register')
+  @Throttle({ default: { ttl: 60 * 60_000, limit: 5 } })
   async register(
     @Body() dto: RegisterDto,
     @Res({ passthrough: true }) response: Response,
@@ -63,6 +79,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Throttle({ default: { ttl: 15 * 60_000, limit: 10 } })
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,

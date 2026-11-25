@@ -12,6 +12,7 @@ import {
 
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
+import { WsRateLimiter } from '../common/ws-rate-limiter';
 
 import { ChatService } from './chat.service';
 
@@ -24,6 +25,9 @@ import { ChatService } from './chat.service';
 export class ChatGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
+  private readonly messageLimiter = new WsRateLimiter(20, 10_000);
+  private readonly typingLimiter = new WsRateLimiter(10, 5_000);
+
   @WebSocketServer()
   server: Server;
 
@@ -130,6 +134,10 @@ handleConnection(client: Socket) {
         throw new WsException('Unauthorized');
       }
 
+      if (!this.messageLimiter.consume(userId)) {
+        throw new WsException('Too many messages. Please slow down.');
+      }
+
       if (
         typeof data?.content !== 'string' ||
         !data.content.trim() ||
@@ -178,6 +186,9 @@ handleConnection(client: Socket) {
       if (!userId) {
         throw new WsException('Unauthorized');
       }
+
+      // Drop excess typing events silently; they're best-effort
+      if (!this.typingLimiter.consume(userId)) return;
 
       await this.chatService.assertConversationAccess(
         data.conversationId,

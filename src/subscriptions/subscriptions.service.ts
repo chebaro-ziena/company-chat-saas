@@ -8,7 +8,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import Stripe from 'stripe';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../db/schema';
 import { DRIZZLE } from '../db/db.constants';
@@ -20,6 +20,26 @@ export class SubscriptionsService {
     @Inject(DRIZZLE)
     private readonly db: NodePgDatabase<typeof schema>,
   ) {}
+
+  // Team members work under their company's admin subscription and cannot subscribe themselves.
+  private async assertCanSubscribe(userId: string): Promise<void> {
+    const [teamMembership] = await this.db
+      .select({ id: schema.companyMemberships.id })
+      .from(schema.companyMemberships)
+      .where(
+        and(
+          eq(schema.companyMemberships.userId, userId),
+          eq(schema.companyMemberships.role, 'TEAM_MEMBER'),
+        ),
+      )
+      .limit(1);
+
+    if (teamMembership) {
+      throw new ForbiddenException(
+        'Team members cannot subscribe. Your company admin manages the subscription.',
+      );
+    }
+  }
 
   private getStripe(): Stripe {
     const secretKey = process.env.STRIPE_SECRET_KEY;
@@ -84,6 +104,8 @@ export class SubscriptionsService {
   }
 
   async activateFreePlan(userId: string) {
+    await this.assertCanSubscribe(userId);
+
     const [existing] = await this.db
       .select()
       .from(subscriptions)
@@ -114,6 +136,8 @@ export class SubscriptionsService {
   }
 
   async createPaidCheckoutSession(userId: string) {
+  await this.assertCanSubscribe(userId);
+
   const priceId = process.env.STRIPE_PAID_PRICE_ID;
   const frontendUrl = process.env.FRONTEND_URL;
 
@@ -392,6 +416,8 @@ async syncCheckoutSession(userId: string, sessionId: string) {
   if (!sessionId?.trim()) {
     throw new BadRequestException('Checkout session ID is required.');
   }
+
+  await this.assertCanSubscribe(userId);
 
   const stripe = this.getStripe();
   const session = await stripe.checkout.sessions.retrieve(sessionId);

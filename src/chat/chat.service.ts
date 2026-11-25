@@ -9,9 +9,33 @@ import {
   Inject,
 } from '@nestjs/common';
 
-import { eq, and, desc, isNull } from 'drizzle-orm';
+import { eq, and, desc, isNull, inArray, type SQL } from 'drizzle-orm';
 
 import { conversations, messages, products, companyMemberships, users } from '../db/schema';
+import type { CompanyRole } from '../auth/interfaces/authenticated-request.interface';
+
+// Company roles allowed to handle customer conversations.
+const STAFF_ROLES: readonly CompanyRole[] = ['ADMIN', 'TEAM_MEMBER'];
+
+export type MessageSenderRole = CompanyRole | 'CUSTOMER';
+
+type MessageBase = {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  content: string;
+  readAt: Date | null;
+  createdAt: Date;
+};
+
+type MessageWithSenderRow = MessageBase & {
+  senderName: string;
+  senderCompanyRole: CompanyRole | null;
+};
+
+export type MessageWithSender = MessageBase & {
+  sender: { id: string; name: string; role: MessageSenderRole };
+};
 
 
 import { DRIZZLE } from '../db/db.constants';
@@ -83,7 +107,7 @@ async getCompanyConversations(
   companyId: string,
   userId: string,
 ) {
-  await this.verifyCompanyAdmin(companyId, userId);
+  await this.verifyCompanyStaff(companyId, userId);
 
   return this.db
     .select({
@@ -108,6 +132,44 @@ async getCompanyConversations(
     .orderBy(desc(conversations.lastMessageAt));
 }
 
+  // Get conversation details (customer, or ADMIN/TEAM_MEMBER of the company)
+  async getConversationDetails(
+    conversationId: string,
+    userId: string,
+  ) {
+    const conversation = await this.getConversation(conversationId);
+
+    await this.verifyConversationAccess(conversation, userId);
+
+    const [details] = await this.db
+      .select({
+        id: conversations.id,
+        companyId: conversations.companyId,
+        customerId: conversations.customerId,
+        productId: conversations.productId,
+        status: conversations.status,
+        lastMessageAt: conversations.lastMessageAt,
+        createdAt: conversations.createdAt,
+        updatedAt: conversations.updatedAt,
+        customer: {
+          id: users.id,
+          name: users.name,
+          email: users.email,
+        },
+        product: {
+          id: products.id,
+          name: products.name,
+        },
+      })
+      .from(conversations)
+      .leftJoin(users, eq(conversations.customerId, users.id))
+      .leftJoin(products, eq(conversations.productId, products.id))
+      .where(eq(conversations.id, conversationId))
+      .limit(1);
+
+    return details;
+  }
+
   // Get messages
   async getConversationMessages(
     conversationId: string,
@@ -117,11 +179,48 @@ async getCompanyConversations(
 
     await this.verifyConversationAccess(conversation, userId);
 
-    return this.db
-      .select()
+    return this.findMessagesWithSender(
+      conversation.companyId,
+      eq(messages.conversationId, conversationId),
+    );
+  }
+
+  // Messages plus sender { id, name, role }; role is the sender's company role, or CUSTOMER.
+  private async findMessagesWithSender(
+    companyId: string,
+    condition: SQL,
+  ): Promise<MessageWithSender[]> {
+    const rows: MessageWithSenderRow[] = await this.db
+      .select({
+        id: messages.id,
+        conversationId: messages.conversationId,
+        senderId: messages.senderId,
+        content: messages.content,
+        readAt: messages.readAt,
+        createdAt: messages.createdAt,
+        senderName: users.name,
+        senderCompanyRole: companyMemberships.role,
+      })
       .from(messages)
-      .where(eq(messages.conversationId, conversationId))
+      .innerJoin(users, eq(messages.senderId, users.id))
+      .leftJoin(
+        companyMemberships,
+        and(
+          eq(companyMemberships.userId, messages.senderId),
+          eq(companyMemberships.companyId, companyId),
+        ),
+      )
+      .where(condition)
       .orderBy(messages.createdAt);
+
+    return rows.map(({ senderName, senderCompanyRole, ...message }) => ({
+      ...message,
+      sender: {
+        id: message.senderId,
+        name: senderName,
+        role: senderCompanyRole ?? 'CUSTOMER',
+      },
+    }));
   }
 
   // Send a message
@@ -155,7 +254,12 @@ async getCompanyConversations(
       })
       .where(eq(conversations.id, conversationId));
 
-    return message;
+    const [messageWithSender] = await this.findMessagesWithSender(
+      conversation.companyId,
+      eq(messages.id, message.id),
+    );
+
+    return messageWithSender ?? message;
   }
 
   // Close conversation
@@ -165,7 +269,8 @@ async getCompanyConversations(
   ) {
     const conversation = await this.getConversation(conversationId);
 
-    await this.verifyConversationAccess(conversation, userId);
+    // Closing keeps its previous rule: the customer or a company ADMIN.
+    await this.verifyConversationAccess(conversation, userId, ['ADMIN']);
 
     const [updated] = await this.db
       .update(conversations)
@@ -177,6 +282,26 @@ async getCompanyConversations(
       .returning();
 
     return updated;
+  }
+
+  // Delete conversation (and its messages, via ON DELETE CASCADE).
+  // Only a company ADMIN may delete — not the customer, not a TEAM_MEMBER.
+  async deleteConversation(
+    conversationId: string,
+    userId: string,
+  ): Promise<{ conversationId: string; companyId: string }> {
+    const conversation = await this.getConversation(conversationId);
+
+    await this.verifyCompanyStaff(conversation.companyId, userId, ['ADMIN']);
+
+    await this.db
+      .delete(conversations)
+      .where(eq(conversations.id, conversationId));
+
+    return {
+      conversationId,
+      companyId: conversation.companyId,
+    };
   }
 
   // Find conversation
@@ -194,27 +319,30 @@ async getCompanyConversations(
     return conversation;
   }
 
-  // Verify customer or company admin
+  // Verify the user is the conversation's customer or staff of its company
   private async verifyConversationAccess(
-    conversation: any,
+    conversation: { customerId: string; companyId: string },
     userId: string,
+    allowedRoles: readonly CompanyRole[] = STAFF_ROLES,
   ) {
     if (conversation.customerId === userId) {
       return true;
     }
 
-    await this.verifyCompanyAdmin(
+    await this.verifyCompanyStaff(
       conversation.companyId,
       userId,
+      allowedRoles,
     );
 
     return true;
   }
 
-  // Verify company admin
-  private async verifyCompanyAdmin(
+  // Verify company membership with one of the allowed roles (DB is the source of truth)
+  private async verifyCompanyStaff(
     companyId: string,
     userId: string,
+    allowedRoles: readonly CompanyRole[] = STAFF_ROLES,
   ) {
     const [membership] = await this.db
       .select()
@@ -223,7 +351,7 @@ async getCompanyConversations(
         and(
           eq(companyMemberships.companyId, companyId),
           eq(companyMemberships.userId, userId),
-          eq(companyMemberships.role, 'ADMIN'),
+          inArray(companyMemberships.role, [...allowedRoles]),
         ),
       )
       .limit(1);
